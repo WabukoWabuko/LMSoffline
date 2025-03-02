@@ -7,10 +7,10 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def init_db(force_reset=False):
-    if force_reset and os.path.exists("school_lms.db"):
-        os.remove("school_lms.db")
+    if force_reset and os.path.exists("resources/school_lms.db"):
+        os.remove("resources/school_lms.db")
     
-    conn = sqlite3.connect("school_lms.db")
+    conn = sqlite3.connect("resources/school_lms.db")
     c = conn.cursor()
     
     c.execute('''CREATE TABLE IF NOT EXISTS users 
@@ -36,6 +36,13 @@ def init_db(force_reset=False):
     c.execute('''CREATE TABLE IF NOT EXISTS quiz_submissions 
                  (submission_id INTEGER PRIMARY KEY AUTOINCREMENT, quiz_id INTEGER, 
                   student TEXT, answer INTEGER, score INTEGER)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS points 
+                 (point_id INTEGER PRIMARY KEY AUTOINCREMENT, student TEXT, points INTEGER, reason TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS badges 
+                 (badge_id INTEGER PRIMARY KEY AUTOINCREMENT, student TEXT, badge_name TEXT, awarded_date TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS chat_messages 
+                 (chat_id INTEGER PRIMARY KEY AUTOINCREMENT, course_id INTEGER, 
+                  sender TEXT, message TEXT, timestamp TEXT)''')
     
     # Add missing columns
     c.execute("PRAGMA table_info(assignments)")
@@ -60,6 +67,8 @@ def init_db(force_reset=False):
     c.execute("CREATE INDEX IF NOT EXISTS idx_notifications_username ON notifications(username)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_quiz_submissions_student ON quiz_submissions(student)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_points_student ON points(student)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_course ON chat_messages(course_id)")
 
     default_users = [
         ("student1", hash_password("pass123"), "student"),
@@ -72,3 +81,5 @@ def init_db(force_reset=False):
 
 if not os.path.exists("assignments"):
     os.makedirs("assignments")
+if not os.path.exists("resources"):
+    os.makedirs("resources")

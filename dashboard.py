@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, 
                              QListWidget, QFileDialog, QInputDialog, QMessageBox, 
                              QTabWidget, QStatusBar, QProgressBar, QTextEdit, QApplication,
-                             QListWidgetItem, QCalendarWidget, QCheckBox)
-from PyQt5.QtGui import QIcon, QFont, QPixmap, QTextCharFormat  # Added QTextCharFormat here
+                             QListWidgetItem, QCalendarWidget, QCheckBox, QTextBrowser)
+from PyQt5.QtGui import QIcon, QFont, QPixmap, QTextCharFormat
 from PyQt5.QtCore import QTimer, Qt, QPropertyAnimation, QEasingCurve
 from PIL import Image
 import io
@@ -19,6 +19,7 @@ class DashboardWindow(QMainWindow):
         self.role = role
         self.username = username
         self.dark_mode = False
+        self.calendar_cache = {}
         self.setWindowTitle(f"School LMS - {role.capitalize()} Dashboard")
         self.setGeometry(150, 150, 800, 600)
         self.update_stylesheet()
@@ -52,8 +53,8 @@ class DashboardWindow(QMainWindow):
         self.timer.timeout.connect(self.check_due_dates)
         self.timer.start(60000)
 
-        # Fade-in animation for tabs
         self.animate_tabs()
+        self.show_tutorial()
 
     def update_stylesheet(self):
         if self.dark_mode:
@@ -93,6 +94,40 @@ class DashboardWindow(QMainWindow):
         self.dark_mode = bool(state)
         self.update_stylesheet()
 
+    def show_tutorial(self):
+        if self.role == "student":
+            tutorial = QTextBrowser(self)
+            tutorial.setWindowTitle("Welcome to Springfield LMS!")
+            tutorial.setGeometry(200, 200, 400, 300)
+            tutorial.setHtml("""
+                <h2>Welcome, Student!</h2>
+                <p>Here's how to get started:</p>
+                <ul>
+                    <li><b>Courses</b>: Enroll in courses and submit assignments or take quizzes.</li>
+                    <li><b>Grades</b>: Check your scores and teacher comments.</li>
+                    <li><b>Progress</b>: Track your completion with progress bars and earn points!</li>
+                    <li><b>Chat</b>: Message your teachers in real-time.</li>
+                    <li><b>Calendar</b>: View due dates at a glance.</li>
+                </ul>
+                <p>Complete tasks to earn badges like 'Star Student'!</p>
+            """)
+            tutorial.show()
+        elif self.role == "teacher":
+            tutorial = QTextBrowser(self)
+            tutorial.setWindowTitle("Welcome to Springfield LMS!")
+            tutorial.setGeometry(200, 200, 400, 300)
+            tutorial.setHtml("""
+                <h2>Welcome, Teacher!</h2>
+                <p>Here's how to get started:</p>
+                <ul>
+                    <li><b>Courses</b>: Create courses, assignments, and quizzes.</li>
+                    <li><b>Assignments</b>: Grade submissions and add comments.</li>
+                    <li><b>Chat</b>: Communicate with students in real-time.</li>
+                </ul>
+                <p>Support your students’ success!</p>
+            """)
+            tutorial.show()
+
     def validate_due_date(self, due_date):
         pattern = r"^\d{4}-\d{2}-\d{2}$"
         if not re.match(pattern, due_date):
@@ -103,10 +138,39 @@ class DashboardWindow(QMainWindow):
         except ValueError:
             return False
 
+    def award_points(self, student, points, reason):
+        conn = sqlite3.connect("resources/school_lms.db")
+        c = conn.cursor()
+        c.execute("INSERT INTO points (student, points, reason) VALUES (?, ?, ?)", (student, points, reason))
+        total_points = self.get_total_points(student)
+        if total_points >= 50 and not self.has_badge(student, "Star Student"):
+            c.execute("INSERT INTO badges (student, badge_name, awarded_date) VALUES (?, ?, ?)",
+                     (student, "Star Student", datetime.now().strftime("%Y-%m-%d")))
+            c.execute("INSERT INTO notifications (username, message) VALUES (?, ?)",
+                     (student, "Congratulations! You've earned the 'Star Student' badge!"))
+        conn.commit()
+        conn.close()
+
+    def get_total_points(self, student):
+        conn = sqlite3.connect("resources/school_lms.db")
+        c = conn.cursor()
+        c.execute("SELECT SUM(points) FROM points WHERE student=?", (student,))
+        total = c.fetchone()[0] or 0
+        conn.close()
+        return total
+
+    def has_badge(self, student, badge_name):
+        conn = sqlite3.connect("resources/school_lms.db")
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM badges WHERE student=? AND badge_name=?", (student, badge_name))
+        has_it = c.fetchone()[0] > 0
+        conn.close()
+        return has_it
+
     def check_due_dates(self):
         if self.role != "student":
             return
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT course_id, due_date, description FROM assignments WHERE student=? AND grade IS NULL", 
                  (self.username,))
@@ -177,6 +241,10 @@ class DashboardWindow(QMainWindow):
         self.progress_list = QListWidget()
         self.refresh_progress_list()
         progress_layout.addWidget(self.progress_list)
+        points_label = QLabel(f"Total Points: {self.get_total_points(self.username)}")
+        progress_layout.addWidget(points_label)
+        badges_label = QLabel("Badges: " + ", ".join(self.get_badges(self.username)) or "No badges yet")
+        progress_layout.addWidget(badges_label)
         progress_tab.setLayout(progress_layout)
         self.tabs.addTab(progress_tab, "Progress")
 
@@ -204,6 +272,21 @@ class DashboardWindow(QMainWindow):
         messages_tab.setLayout(messages_layout)
         self.tabs.addTab(messages_tab, "Messages")
 
+        chat_tab = QWidget()
+        chat_layout = QVBoxLayout()
+        chat_layout.addWidget(QLabel("Live Chat:"))
+        self.chat_list = QListWidget()
+        self.refresh_chat_list()
+        chat_layout.addWidget(self.chat_list)
+        self.chat_input = QTextEdit()
+        self.chat_input.setFixedHeight(50)
+        chat_layout.addWidget(self.chat_input)
+        send_chat_button = QPushButton("Send", self)
+        send_chat_button.clicked.connect(self.send_chat_message)
+        chat_layout.addWidget(send_chat_button)
+        chat_tab.setLayout(chat_layout)
+        self.tabs.addTab(chat_tab, "Chat")
+
         calendar_tab = QWidget()
         calendar_layout = QVBoxLayout()
         calendar_layout.addWidget(QLabel("Due Dates Calendar:"))
@@ -218,7 +301,7 @@ class DashboardWindow(QMainWindow):
 
     def refresh_course_list(self):
         self.course_list.clear()
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT c.course_id, c.course_name, c.description FROM courses c JOIN enrollments e ON c.course_id = e.course_id WHERE e.student=?", 
                  (self.username,))
@@ -229,7 +312,7 @@ class DashboardWindow(QMainWindow):
 
     def refresh_grade_list(self):
         self.grade_list.clear()
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT course_id, file_path, grade, due_date, description, comment FROM assignments WHERE student=?", 
                  (self.username,))
@@ -250,7 +333,7 @@ class DashboardWindow(QMainWindow):
 
     def refresh_progress_list(self):
         self.progress_list.clear()
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT course_id FROM enrollments WHERE student=?", (self.username,))
         courses = c.fetchall()
@@ -279,9 +362,17 @@ class DashboardWindow(QMainWindow):
             self.progress_list.setItemWidget(item, progress_bar)
         conn.close()
 
+    def get_badges(self, student):
+        conn = sqlite3.connect("resources/school_lms.db")
+        c = conn.cursor()
+        c.execute("SELECT badge_name FROM badges WHERE student=?", (student,))
+        badges = [row[0] for row in c.fetchall()]
+        conn.close()
+        return badges
+
     def refresh_notif_list(self):
         self.notif_list.clear()
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT notif_id, message, is_read FROM notifications WHERE username=?", (self.username,))
         notifications = c.fetchall()
@@ -300,7 +391,7 @@ class DashboardWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Select a notification first!")
             return
         notif_id = int(selected.text().split("ID: ")[1].rstrip(")"))
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("UPDATE notifications SET is_read=1 WHERE notif_id=?", (notif_id,))
         conn.commit()
@@ -309,7 +400,7 @@ class DashboardWindow(QMainWindow):
 
     def refresh_message_list(self):
         self.message_list.clear()
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT msg_id, sender, course_id, message, timestamp FROM messages WHERE receiver=?", 
                  (self.username,))
@@ -328,24 +419,63 @@ class DashboardWindow(QMainWindow):
                 self.message_list.addItem(f"[{timestamp}] To {receiver} ({course_name}): {message} (ID: {msg_id})")
         conn.close()
 
-    def update_calendar(self):
-        conn = sqlite3.connect("school_lms.db")
+    def refresh_chat_list(self):
+        self.chat_list.clear()
+        selected = self.course_list.currentItem()
+        if not selected:
+            self.chat_list.addItem("Select a course to view chat.")
+            return
+        course_id = int(selected.text().split("ID: ")[1].split(")")[0])
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
-        c.execute("SELECT due_date FROM assignments WHERE student=?", (self.username,))
-        assignment_dates = [datetime.strptime(row[0], "%Y-%m-%d").date() for row in c.fetchall()]
-        c.execute("SELECT due_date FROM quizzes WHERE course_id IN (SELECT course_id FROM enrollments WHERE student=?) AND quiz_id NOT IN (SELECT quiz_id FROM quiz_submissions WHERE student=?)",
-                 (self.username, self.username))
-        quiz_dates = [datetime.strptime(row[0], "%Y-%m-%d").date() for row in c.fetchall()]
-        dates = assignment_dates + quiz_dates
+        c.execute("SELECT sender, message, timestamp FROM chat_messages WHERE course_id=? ORDER BY timestamp", 
+                 (course_id,))
+        messages = c.fetchall()
+        for sender, message, timestamp in messages:
+            self.chat_list.addItem(f"[{timestamp}] {sender}: {message}")
+        conn.close()
+        self.chat_list.scrollToBottom()
+
+    def send_chat_message(self):
+        selected = self.course_list.currentItem()
+        if not selected:
+            QMessageBox.warning(self, "Error", "Select a course first!")
+            return
+        course_id = int(selected.text().split("ID: ")[1].split(")")[0])
+        message = self.chat_input.toPlainText().strip()
+        if message:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            conn = sqlite3.connect("resources/school_lms.db")
+            c = conn.cursor()
+            c.execute("INSERT INTO chat_messages (course_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
+                     (course_id, self.username, message, timestamp))
+            conn.commit()
+            conn.close()
+            self.chat_input.clear()
+            self.refresh_chat_list()
+
+    def update_calendar(self):
+        if self.calendar_cache.get(self.username):
+            dates = self.calendar_cache[self.username]
+        else:
+            conn = sqlite3.connect("resources/school_lms.db")
+            c = conn.cursor()
+            c.execute("SELECT due_date FROM assignments WHERE student=?", (self.username,))
+            assignment_dates = [datetime.strptime(row[0], "%Y-%m-%d").date() for row in c.fetchall()]
+            c.execute("SELECT due_date FROM quizzes WHERE course_id IN (SELECT course_id FROM enrollments WHERE student=?) AND quiz_id NOT IN (SELECT quiz_id FROM quiz_submissions WHERE student=?)",
+                     (self.username, self.username))
+            quiz_dates = [datetime.strptime(row[0], "%Y-%m-%d").date() for row in c.fetchall()]
+            dates = assignment_dates + quiz_dates
+            self.calendar_cache[self.username] = dates
+            conn.close()
         for date in dates:
             format = QTextCharFormat()
-            format.setBackground(Qt.yellow)  # Highlight due dates in yellow
+            format.setBackground(Qt.yellow)
             self.calendar.setDateTextFormat(date, format)
-        conn.close()
 
     def show_calendar_events(self, date):
         date_str = date.toString("yyyy-MM-dd")
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT course_id, description FROM assignments WHERE student=? AND due_date=?", 
                  (self.username, date_str))
@@ -366,7 +496,7 @@ class DashboardWindow(QMainWindow):
         self.calendar_events.setText(f"Events on {date_str}:\n" + "\n".join(events) if events else "No events on this date.")
 
     def show_grade_stats(self):
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT grade FROM assignments WHERE student=? AND grade IS NOT NULL", (self.username,))
         assignment_grades = c.fetchall()
@@ -382,7 +512,7 @@ class DashboardWindow(QMainWindow):
         QMessageBox.information(self, "Grade Statistics", stats)
 
     def enroll_in_course(self):
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT course_id, course_name FROM courses WHERE course_id NOT IN (SELECT course_id FROM enrollments WHERE student=?)", 
                  (self.username,))
@@ -399,6 +529,7 @@ class DashboardWindow(QMainWindow):
                      (course_id, self.username))
             c.execute("INSERT INTO notifications (username, message) VALUES (?, ?)",
                      (self.username, f"Enrolled in {course_name}"))
+            self.award_points(self.username, 10, f"Enrolled in {course_name}")
             conn.commit()
             self.refresh_course_list()
             self.refresh_notif_list()
@@ -414,7 +545,7 @@ class DashboardWindow(QMainWindow):
             return
         course_id = int(selected.text().split("ID: ")[1].split(")")[0])
         
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT def_id, title, due_date, description FROM assignment_definitions WHERE course_id=?", 
                  (course_id,))
@@ -437,6 +568,7 @@ class DashboardWindow(QMainWindow):
                          (course_id, self.username, new_path, due_date, description))
                 c.execute("INSERT INTO notifications (username, message) VALUES (?, ?)",
                          (self.username, f"Submitted {assignment_title} for course ID {course_id}"))
+                self.award_points(self.username, 20, f"Submitted assignment '{assignment_title}'")
                 conn.commit()
                 conn.close()
                 self.refresh_grade_list()
@@ -452,7 +584,7 @@ class DashboardWindow(QMainWindow):
             return
         course_id = int(selected.text().split("ID: ")[1].split(")")[0])
         
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT quiz_id, title, question, options, correct_answer FROM quizzes WHERE course_id=? AND quiz_id NOT IN (SELECT quiz_id FROM quiz_submissions WHERE student=?)",
                  (course_id, self.username))
@@ -474,6 +606,7 @@ class DashboardWindow(QMainWindow):
                          (quiz_id, self.username, options.index(answer), score))
                 c.execute("INSERT INTO notifications (username, message) VALUES (?, ?)",
                          (self.username, f"Completed quiz '{quiz_title}' with score {score}/1"))
+                self.award_points(self.username, 15, f"Completed quiz '{quiz_title}'")
                 conn.commit()
                 conn.close()
                 self.refresh_grade_list()
@@ -488,7 +621,7 @@ class DashboardWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Select a course first!")
             return
         course_id = int(selected.text().split("ID: ")[1].split(")")[0])
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT teacher FROM courses WHERE course_id=?", (course_id,))
         teacher = c.fetchone()[0]
@@ -564,9 +697,24 @@ class DashboardWindow(QMainWindow):
         messages_tab.setLayout(messages_layout)
         self.tabs.addTab(messages_tab, "Messages")
 
+        chat_tab = QWidget()
+        chat_layout = QVBoxLayout()
+        chat_layout.addWidget(QLabel("Live Chat:"))
+        self.chat_list = QListWidget()
+        self.refresh_chat_list()
+        chat_layout.addWidget(self.chat_list)
+        self.chat_input = QTextEdit()
+        self.chat_input.setFixedHeight(50)
+        chat_layout.addWidget(self.chat_input)
+        send_chat_button = QPushButton("Send", self)
+        send_chat_button.clicked.connect(self.send_chat_message)
+        chat_layout.addWidget(send_chat_button)
+        chat_tab.setLayout(chat_layout)
+        self.tabs.addTab(chat_tab, "Chat")
+
     def refresh_course_list_teacher(self):
         self.course_list.clear()
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT course_id, course_name, description FROM courses WHERE teacher=?", (self.username,))
         courses = c.fetchall()
@@ -576,7 +724,7 @@ class DashboardWindow(QMainWindow):
 
     def refresh_assignment_list(self):
         self.assignment_list.clear()
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT assignment_id, student, file_path, grade, due_date, description, comment FROM assignments WHERE course_id IN (SELECT course_id FROM courses WHERE teacher=?)", 
                  (self.username,))
@@ -590,7 +738,7 @@ class DashboardWindow(QMainWindow):
         course_name, ok1 = QInputDialog.getText(self, "Add Course", "Enter course name:")
         description, ok2 = QInputDialog.getText(self, "Add Course", "Enter course description (optional):")
         if ok1 and course_name:
-            conn = sqlite3.connect("school_lms.db")
+            conn = sqlite3.connect("resources/school_lms.db")
             c = conn.cursor()
             c.execute("INSERT INTO courses (course_name, teacher, description) VALUES (?, ?, ?)", 
                      (course_name, self.username, description if ok2 and description else None))
@@ -607,7 +755,7 @@ class DashboardWindow(QMainWindow):
         course_id = int(selected.text().split("ID: ")[1].split(")")[0])
         description, ok = QInputDialog.getText(self, "Edit Course", "Enter new description:")
         if ok:
-            conn = sqlite3.connect("school_lms.db")
+            conn = sqlite3.connect("resources/school_lms.db")
             c = conn.cursor()
             c.execute("UPDATE courses SET description=? WHERE course_id=?", (description, course_id))
             conn.commit()
@@ -628,7 +776,7 @@ class DashboardWindow(QMainWindow):
             if not self.validate_due_date(due_date):
                 QMessageBox.warning(self, "Error", "Due date must be in YYYY-MM-DD format!")
                 return
-            conn = sqlite3.connect("school_lms.db")
+            conn = sqlite3.connect("resources/school_lms.db")
             c = conn.cursor()
             c.execute("SELECT COUNT(*) FROM assignment_definitions WHERE course_id=? AND title=?", 
                      (course_id, title))
@@ -654,7 +802,7 @@ class DashboardWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Select a course first!")
             return
         course_id = int(selected.text().split("ID: ")[1].split(")")[0])
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT def_id, title, due_date, description FROM assignment_definitions WHERE course_id=?", 
                  (course_id,))
@@ -706,7 +854,7 @@ class DashboardWindow(QMainWindow):
             if len(options) != 4:
                 QMessageBox.warning(self, "Error", "Exactly 4 options required!")
                 return
-            conn = sqlite3.connect("school_lms.db")
+            conn = sqlite3.connect("resources/school_lms.db")
             c = conn.cursor()
             c.execute("INSERT INTO quizzes (course_id, title, due_date, question, options, correct_answer) VALUES (?, ?, ?, ?, ?, ?)",
                      (course_id, title, due_date, question, options_str, correct_answer))
@@ -730,7 +878,7 @@ class DashboardWindow(QMainWindow):
         grade, ok1 = QInputDialog.getText(self, "Grade Assignment", "Enter grade (e.g., A, B, 100):")
         comment, ok2 = QInputDialog.getText(self, "Grade Assignment", "Enter comment (optional):")
         if ok1 and grade:
-            conn = sqlite3.connect("school_lms.db")
+            conn = sqlite3.connect("resources/school_lms.db")
             c = conn.cursor()
             c.execute("UPDATE assignments SET grade=?, comment=? WHERE assignment_id=?", (grade, comment if ok2 and comment else None, assignment_id))
             c.execute("SELECT student, description FROM assignments WHERE assignment_id=?", (assignment_id,))
@@ -816,7 +964,7 @@ class DashboardWindow(QMainWindow):
 
     def refresh_user_list(self):
         self.user_list.clear()
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT username, role FROM users")
         users = c.fetchall()
@@ -830,7 +978,7 @@ class DashboardWindow(QMainWindow):
         password, ok2 = QInputDialog.getText(self, "Add User", "Enter password:", QLineEdit.Password)
         role, ok3 = QInputDialog.getText(self, "Add User", "Enter role (student/teacher/admin):")
         if ok1 and ok2 and ok3 and username and password and role:
-            conn = sqlite3.connect("school_lms.db")
+            conn = sqlite3.connect("resources/school_lms.db")
             c = conn.cursor()
             c.execute("INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, ?)",
                      (username, hash_password(password), role))
@@ -845,7 +993,7 @@ class DashboardWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Select a user first!")
             return
         username = selected.text().split(" (")[0]
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("DELETE FROM users WHERE username=?", (username,))
         conn.commit()

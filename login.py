@@ -1,28 +1,76 @@
 # login.py
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QHBoxLayout
+from PyQt5.QtGui import QPixmap, QFont, QPalette, QColor
+from PyQt5.QtCore import Qt
 import sqlite3
 from dashboard import DashboardWindow
 from database import hash_password
+import os
 
 class LoginWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("School LMS - Login")
-        self.setGeometry(100, 100, 300, 200)
+        self.setWindowTitle("WABUKOWABUKO SCHOOL - Login")
+        self.setGeometry(100, 100, 400, 500)
+        self.setStyleSheet("""
+            QWidget { background: rgba(255, 255, 255, 0.9); border-radius: 10px; }
+            QLabel { color: #333; }
+            QLineEdit { padding: 8px; border: 1px solid #ccc; border-radius: 5px; }
+            QPushButton { background-color: #4CAF50; color: white; padding: 10px; border-radius: 5px; }
+            QPushButton:hover { background-color: #45a049; }
+        """)
+
+        # Background image
+        self.setAutoFillBackground(True)
+        palette = self.palette()
+        pixmap = QPixmap("resources/background.jpg").scaled(self.size(), Qt.KeepAspectRatioByExpanding)
+        palette.setBrush(QPalette.Background, pixmap)
+        self.setPalette(palette)
 
         layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # Logo
+        logo_label = QLabel()
+        logo_pixmap = QPixmap("resources/logo.png").scaled(100, 100, Qt.KeepAspectRatio)
+        logo_label.setPixmap(logo_pixmap)
+        logo_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(logo_label)
+
+        # School branding
+        school_name = QLabel("Springfield High School")
+        school_name.setFont(QFont("Arial", 16, QFont.Bold))
+        school_name.setAlignment(Qt.AlignCenter)
+        layout.addWidget(school_name)
+
+        motto = QLabel("Motto: 'Excellence in Learning'")
+        motto.setFont(QFont("Arial", 10, QFont.Italic))
+        motto.setAlignment(Qt.AlignCenter)
+        layout.addWidget(motto)
+
+        vision = QLabel("Vision: Empowering students for a bright future.")
+        vision.setFont(QFont("Arial", 10))
+        vision.setAlignment(Qt.AlignCenter)
+        vision.setWordWrap(True)
+        layout.addWidget(vision)
+
+        # Inputs
         self.username_input = QLineEdit(self)
         self.username_input.setPlaceholderText("Username")
+        layout.addWidget(self.username_input)
+
         self.password_input = QLineEdit(self)
         self.password_input.setPlaceholderText("Password")
         self.password_input.setEchoMode(QLineEdit.Password)
+        layout.addWidget(self.password_input)
+
+        # Login button
         self.login_button = QPushButton("Login", self)
         self.login_button.clicked.connect(self.check_login)
-
-        layout.addWidget(QLabel("Login to School LMS"))
-        layout.addWidget(self.username_input)
-        layout.addWidget(self.password_input)
         layout.addWidget(self.login_button)
+
+        layout.addStretch()
         self.setLayout(layout)
 
     def check_login(self):
@@ -30,7 +78,7 @@ class LoginWindow(QWidget):
         password = hash_password(self.password_input.text())
         print(f"Attempting login with username: {username}, hashed password: {password}")
 
-        conn = sqlite3.connect("school_lms.db")
+        conn = sqlite3.connect("resources/school_lms.db")
         c = conn.cursor()
         c.execute("SELECT role FROM users WHERE username=? AND password=?", 
                  (username, password))
