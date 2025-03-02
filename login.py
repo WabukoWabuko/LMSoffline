@@ -1,6 +1,6 @@
 # login.py
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QHBoxLayout
-from PyQt5.QtGui import QPixmap, QFont, QPalette, QColor
+from PyQt5.QtGui import QPixmap, QFont, QPalette, QColor, QBrush  # Added QBrush
 from PyQt5.QtCore import Qt
 import sqlite3
 from dashboard import DashboardWindow
@@ -10,7 +10,7 @@ import os
 class LoginWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("WABUKOWABUKO SCHOOL - Login")
+        self.setWindowTitle("School LMS - Login")
         self.setGeometry(100, 100, 400, 500)
         self.setStyleSheet("""
             QWidget { background: rgba(255, 255, 255, 0.9); border-radius: 10px; }
@@ -24,7 +24,8 @@ class LoginWindow(QWidget):
         self.setAutoFillBackground(True)
         palette = self.palette()
         pixmap = QPixmap("resources/background.jpg").scaled(self.size(), Qt.KeepAspectRatioByExpanding)
-        palette.setBrush(QPalette.Background, pixmap)
+        brush = QBrush(pixmap)  # Convert QPixmap to QBrush
+        palette.setBrush(QPalette.Window, brush)  # Use QPalette.Window instead of QPalette.Background
         self.setPalette(palette)
 
         layout = QVBoxLayout()
