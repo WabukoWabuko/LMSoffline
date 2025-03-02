@@ -562,8 +562,11 @@ class DashboardWindow(QMainWindow):
         chart.addAxis(axis_x, Qt.AlignBottom)
         bar_series.attachAxis(axis_x)
 
+        # Fix: Extract values from total_set manually
+        total_values = [total_set.at(i) for i in range(total_set.count())]
+        max_value = max(total_values) if total_values else 1  # Default to 1 if no values
         axis_y = QValueAxis()
-        axis_y.setRange(0, max(total_set.data(), default=1))
+        axis_y.setRange(0, max_value)
         axis_y.setTitleText("Tasks")
         axis_y.setTitleFont(QFont("Arial", 12))
         chart.addAxis(axis_y, Qt.AlignLeft)
