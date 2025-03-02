@@ -1,6 +1,6 @@
 # login.py
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QHBoxLayout
-from PyQt5.QtGui import QPixmap, QFont, QPalette, QColor, QBrush  # Added QBrush
+from PyQt5.QtGui import QPixmap, QFont, QPalette, QColor, QBrush
 from PyQt5.QtCore import Qt
 import sqlite3
 from dashboard import DashboardWindow
@@ -10,7 +10,7 @@ import os
 class LoginWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("School LMS - Login")
+        self.setWindowTitle("WABUKOWABUKO SCHOOL - Login")
         self.setGeometry(100, 100, 400, 500)
         self.setStyleSheet("""
             QWidget { background: rgba(255, 255, 255, 0.9); border-radius: 10px; }
@@ -23,9 +23,16 @@ class LoginWindow(QWidget):
         # Background image
         self.setAutoFillBackground(True)
         palette = self.palette()
-        pixmap = QPixmap("resources/background.jpg").scaled(self.size(), Qt.KeepAspectRatioByExpanding)
-        brush = QBrush(pixmap)  # Convert QPixmap to QBrush
-        palette.setBrush(QPalette.Window, brush)  # Use QPalette.Window instead of QPalette.Background
+        background_path = "resources/background.jpg"
+        if os.path.exists(background_path):
+            pixmap = QPixmap(background_path).scaled(self.size(), Qt.KeepAspectRatioByExpanding)
+            if not pixmap.isNull():  # Check if pixmap loaded successfully
+                brush = QBrush(pixmap)
+                palette.setBrush(QPalette.Window, brush)
+            else:
+                print(f"Warning: Could not load background image at {background_path}")
+        else:
+            print(f"Warning: Background image not found at {background_path}")
         self.setPalette(palette)
 
         layout = QVBoxLayout()
@@ -34,8 +41,13 @@ class LoginWindow(QWidget):
 
         # Logo
         logo_label = QLabel()
-        logo_pixmap = QPixmap("resources/logo.png").scaled(100, 100, Qt.KeepAspectRatio)
-        logo_label.setPixmap(logo_pixmap)
+        logo_path = "resources/logo.png"
+        if os.path.exists(logo_path):
+            logo_pixmap = QPixmap(logo_path).scaled(100, 100, Qt.KeepAspectRatio)
+            if not logo_pixmap.isNull():
+                logo_label.setPixmap(logo_pixmap)
+            else:
+                print(f"Warning: Could not load logo image at {logo_path}")
         logo_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(logo_label)
 
@@ -46,7 +58,7 @@ class LoginWindow(QWidget):
         layout.addWidget(school_name)
 
         motto = QLabel("Motto: 'Excellence in Learning'")
-        motto.setFont(QFont("Arial", 10, QFont.Italic))
+        motto.setFont(QFont("Arial", 10, QFont.StyleItalic))  # Fixed to use StyleItalic
         motto.setAlignment(Qt.AlignCenter)
         layout.addWidget(motto)
 
