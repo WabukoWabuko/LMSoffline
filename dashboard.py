@@ -7,11 +7,52 @@ from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, 
                              QListWidget, QFileDialog, QInputDialog, QMessageBox, 
                              QTabWidget, QStatusBar, QProgressBar, QTextEdit, QApplication,
-                             QListWidgetItem, QCalendarWidget, QCheckBox, QTextBrowser)
+                             QListWidgetItem, QCalendarWidget, QCheckBox, QDialog, QTextBrowser)
 from PyQt5.QtGui import QIcon, QFont, QPixmap, QTextCharFormat
 from PyQt5.QtCore import QTimer, Qt, QPropertyAnimation, QEasingCurve
 from PIL import Image
 import io
+
+class TutorialDialog(QDialog):
+    def __init__(self, role, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Welcome to Springfield LMS!")
+        self.setGeometry(200, 200, 400, 300)
+        self.setModal(True)  # Makes it a modal dialog, closable by clicking outside
+
+        layout = QVBoxLayout()
+        self.text_browser = QTextBrowser()
+        if role == "student":
+            self.text_browser.setHtml("""
+                <h2>Welcome, Student!</h2>
+                <p>Here's how to get started:</p>
+                <ul>
+                    <li><b>Courses</b>: Enroll in courses and submit assignments or take quizzes.</li>
+                    <li><b>Grades</b>: Check your scores and teacher comments.</li>
+                    <li><b>Progress</b>: Track your completion with progress bars and earn points!</li>
+                    <li><b>Chat</b>: Message your teachers in real-time.</li>
+                    <li><b>Calendar</b>: View due dates at a glance.</li>
+                </ul>
+                <p>Complete tasks to earn badges like 'Star Student'!</p>
+            """)
+        elif role == "teacher":
+            self.text_browser.setHtml("""
+                <h2>Welcome, Teacher!</h2>
+                <p>Here's how to get started:</p>
+                <ul>
+                    <li><b>Courses</b>: Create courses, assignments, and quizzes.</li>
+                    <li><b>Assignments</b>: Grade submissions and add comments.</li>
+                    <li><b>Chat</b>: Communicate with students in real-time.</li>
+                </ul>
+                <p>Support your students’ success!</p>
+            """)
+        layout.addWidget(self.text_browser)
+
+        ok_button = QPushButton("OK", self)
+        ok_button.clicked.connect(self.accept)
+        layout.addWidget(ok_button)
+
+        self.setLayout(layout)
 
 class DashboardWindow(QMainWindow):
     def __init__(self, role, username):
@@ -95,38 +136,8 @@ class DashboardWindow(QMainWindow):
         self.update_stylesheet()
 
     def show_tutorial(self):
-        if self.role == "student":
-            tutorial = QTextBrowser(self)
-            tutorial.setWindowTitle("Welcome to Springfield LMS!")
-            tutorial.setGeometry(200, 200, 400, 300)
-            tutorial.setHtml("""
-                <h2>Welcome, Student!</h2>
-                <p>Here's how to get started:</p>
-                <ul>
-                    <li><b>Courses</b>: Enroll in courses and submit assignments or take quizzes.</li>
-                    <li><b>Grades</b>: Check your scores and teacher comments.</li>
-                    <li><b>Progress</b>: Track your completion with progress bars and earn points!</li>
-                    <li><b>Chat</b>: Message your teachers in real-time.</li>
-                    <li><b>Calendar</b>: View due dates at a glance.</li>
-                </ul>
-                <p>Complete tasks to earn badges like 'Star Student'!</p>
-            """)
-            tutorial.show()
-        elif self.role == "teacher":
-            tutorial = QTextBrowser(self)
-            tutorial.setWindowTitle("Welcome to Springfield LMS!")
-            tutorial.setGeometry(200, 200, 400, 300)
-            tutorial.setHtml("""
-                <h2>Welcome, Teacher!</h2>
-                <p>Here's how to get started:</p>
-                <ul>
-                    <li><b>Courses</b>: Create courses, assignments, and quizzes.</li>
-                    <li><b>Assignments</b>: Grade submissions and add comments.</li>
-                    <li><b>Chat</b>: Communicate with students in real-time.</li>
-                </ul>
-                <p>Support your students’ success!</p>
-            """)
-            tutorial.show()
+        tutorial = TutorialDialog(self.role, self)
+        tutorial.exec_()  # Show as a modal dialog
 
     def validate_due_date(self, due_date):
         pattern = r"^\d{4}-\d{2}-\d{2}$"
