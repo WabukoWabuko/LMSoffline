@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QLabel, QPushBut
                              QListWidget, QFileDialog, QInputDialog, QMessageBox, 
                              QTabWidget, QStatusBar, QProgressBar, QTextEdit, QApplication,
                              QListWidgetItem, QCalendarWidget, QCheckBox)
-from PyQt5.QtGui import QIcon, QFont, QPixmap
+from PyQt5.QtGui import QIcon, QFont, QPixmap, QTextCharFormat  # Added QTextCharFormat here
 from PyQt5.QtCore import QTimer, Qt, QPropertyAnimation, QEasingCurve
 from PIL import Image
 import io
@@ -338,7 +338,9 @@ class DashboardWindow(QMainWindow):
         quiz_dates = [datetime.strptime(row[0], "%Y-%m-%d").date() for row in c.fetchall()]
         dates = assignment_dates + quiz_dates
         for date in dates:
-            self.calendar.setDateTextFormat(date, QTextCharFormat())
+            format = QTextCharFormat()
+            format.setBackground(Qt.yellow)  # Highlight due dates in yellow
+            self.calendar.setDateTextFormat(date, format)
         conn.close()
 
     def show_calendar_events(self, date):
@@ -765,7 +767,7 @@ class DashboardWindow(QMainWindow):
         elif file_path.endswith((".png", ".jpg", ".jpeg")):
             try:
                 img = Image.open(file_path)
-                img.thumbnail((400, 400))  # Resize for preview
+                img.thumbnail((400, 400))
                 byte_arr = io.BytesIO()
                 img.save(byte_arr, format=img.format)
                 pixmap = QPixmap()
