@@ -27,7 +27,11 @@ def init_db(force_reset=False):
                   title TEXT, due_date TEXT, description TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS notifications 
                  (notif_id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, message TEXT, is_read INTEGER DEFAULT 0)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS messages 
+                 (msg_id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT, receiver TEXT, 
+                  course_id INTEGER, message TEXT, timestamp TEXT)''')
     
+    # Add missing columns
     c.execute("PRAGMA table_info(assignments)")
     columns = [col[1] for col in c.fetchall()]
     if 'grade' not in columns:
@@ -42,6 +46,12 @@ def init_db(force_reset=False):
     if 'description' not in columns:
         c.execute("ALTER TABLE courses ADD COLUMN description TEXT")
     
+    # Add indexes for performance
+    c.execute("CREATE INDEX IF NOT EXISTS idx_enrollments_student ON enrollments(student)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_assignments_student ON assignments(student)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_notifications_username ON notifications(username)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver)")
+
     default_users = [
         ("student1", hash_password("pass123"), "student"),
         ("teacher1", hash_password("pass456"), "teacher"),

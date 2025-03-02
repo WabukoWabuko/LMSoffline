@@ -6,9 +6,9 @@ import re
 from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, 
                              QListWidget, QFileDialog, QInputDialog, QMessageBox, 
-                             QTabWidget, QStatusBar)
+                             QTabWidget, QStatusBar, QProgressBar, QTextEdit, QApplication)
 from PyQt5.QtGui import QIcon, QFont
-from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import QTimer, Qt
 
 class DashboardWindow(QMainWindow):
     def __init__(self, role, username):
@@ -16,22 +16,21 @@ class DashboardWindow(QMainWindow):
         self.role = role
         self.username = username
         self.setWindowTitle(f"School LMS - {role.capitalize()} Dashboard")
-        self.setGeometry(150, 150, 600, 500)
+        self.setGeometry(150, 150, 700, 550)
         self.setStyleSheet("""
             QTabWidget::pane { border: 1px solid #ccc; }
-            QTabBar::tab { background: #f0f0f0; padding: 8px; }
-            QTabBar::tab:selected { background: #d0e0ff; }
-            QPushButton { background-color: #4CAF50; color: white; padding: 5px; }
+            QTabBar::tab { background: #e0e0e0; padding: 8px; }
+            QTabBar::tab:selected { background: #90caf9; }
+            QPushButton { background-color: #4CAF50; color: white; padding: 5px; border-radius: 3px; }
             QPushButton:hover { background-color: #45a049; }
             QLabel { font-family: Arial; }
+            QListWidget::item[unread="true"] { background-color: #fff3e0; }
         """)
 
-        # Initialize status bar first
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
 
-        # Set up the central widget and layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         self.layout = QVBoxLayout()
@@ -40,7 +39,7 @@ class DashboardWindow(QMainWindow):
         welcome_label.setFont(QFont("Arial", 12, QFont.Bold))
         self.layout.addWidget(welcome_label)
         self.tabs = QTabWidget()
-        self.setup_dashboard()  # Now safe to call after status_bar is set
+        self.setup_dashboard()
         self.layout.addWidget(self.tabs)
 
         logout_button = QPushButton("Logout", self)
@@ -49,7 +48,6 @@ class DashboardWindow(QMainWindow):
 
         central_widget.setLayout(self.layout)
 
-        # Timer for periodic due date checks (every 60 seconds)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.check_due_dates)
         self.timer.start(60000)
@@ -120,6 +118,9 @@ class DashboardWindow(QMainWindow):
         self.grade_list = QListWidget()
         self.refresh_grade_list()
         grades_layout.addWidget(self.grade_list)
+        stats_button = QPushButton("View Grade Statistics", self)
+        stats_button.clicked.connect(self.show_grade_stats)
+        grades_layout.addWidget(stats_button)
         grades_tab.setLayout(grades_layout)
         self.tabs.addTab(grades_tab, "Grades")
 
@@ -143,6 +144,18 @@ class DashboardWindow(QMainWindow):
         notif_layout.addWidget(mark_read_button)
         notif_tab.setLayout(notif_layout)
         self.tabs.addTab(notif_tab, "Notifications")
+
+        messages_tab = QWidget()
+        messages_layout = QVBoxLayout()
+        messages_layout.addWidget(QLabel("Messages:"))
+        self.message_list = QListWidget()
+        self.refresh_message_list()
+        messages_layout.addWidget(self.message_list)
+        send_message_button = QPushButton("Send Message to Teacher", self)
+        send_message_button.clicked.connect(self.send_message)
+        messages_layout.addWidget(send_message_button)
+        messages_tab.setLayout(messages_layout)
+        self.tabs.addTab(messages_tab, "Messages")
 
     def refresh_course_list(self):
         self.course_list.clear()
@@ -183,8 +196,13 @@ class DashboardWindow(QMainWindow):
             c.execute("SELECT COUNT(*) FROM assignments WHERE course_id=? AND student=?", 
                      (course_id, self.username))
             submitted = c.fetchone()[0]
-            progress = f"{course_name}: {submitted}/{total_assignments} assignments submitted"
-            self.progress_list.addItem(progress)
+            progress_bar = QProgressBar()
+            progress_bar.setMaximum(total_assignments if total_assignments > 0 else 1)
+            progress_bar.setValue(submitted)
+            progress_bar.setFormat(f"{course_name}: {submitted}/{total_assignments} ({submitted/total_assignments*100:.0f}%)")
+            item = QListWidgetItem()
+            self.progress_list.addItem(item)
+            self.progress_list.setItemWidget(item, progress_bar)
         conn.close()
 
     def refresh_notif_list(self):
@@ -195,8 +213,10 @@ class DashboardWindow(QMainWindow):
         notifications = c.fetchall()
         unread_count = sum(1 for _, _, is_read in notifications if is_read == 0)
         for notif_id, message, is_read in notifications:
-            status = "Unread" if is_read == 0 else "Read"
-            self.notif_list.addItem(f"[{status}] {message} (ID: {notif_id})")
+            item = QListWidgetItem(f"[{ 'Unread' if is_read == 0 else 'Read' }] {message} (ID: {notif_id})")
+            if is_read == 0:
+                item.setData(Qt.UserRole, "unread")  # Custom data for styling
+            self.notif_list.addItem(item)
         conn.close()
         self.status_bar.showMessage(f"{unread_count} unread notifications")
 
@@ -212,6 +232,44 @@ class DashboardWindow(QMainWindow):
         conn.commit()
         conn.close()
         self.refresh_notif_list()
+
+    def refresh_message_list(self):
+        self.message_list.clear()
+        conn = sqlite3.connect("school_lms.db")
+        c = conn.cursor()
+        c.execute("SELECT msg_id, sender, course_id, message, timestamp FROM messages WHERE receiver=?", 
+                 (self.username,))
+        messages = c.fetchall()
+        for msg_id, sender, course_id, message, timestamp in messages:
+            c.execute("SELECT course_name FROM courses WHERE course_id=?", (course_id,))
+            course_name = c.fetchone()[0] if course_id else "General"
+            self.message_list.addItem(f"[{timestamp}] From {sender} ({course_name}): {message} (ID: {msg_id})")
+        if self.role == "teacher":
+            c.execute("SELECT msg_id, receiver, course_id, message, timestamp FROM messages WHERE sender=?", 
+                     (self.username,))
+            sent_messages = c.fetchall()
+            for msg_id, receiver, course_id, message, timestamp in sent_messages:
+                c.execute("SELECT course_name FROM courses WHERE course_id=?", (course_id,))
+                course_name = c.fetchone()[0] if course_id else "General"
+                self.message_list.addItem(f"[{timestamp}] To {receiver} ({course_name}): {message} (ID: {msg_id})")
+        conn.close()
+
+    def show_grade_stats(self):
+        conn = sqlite3.connect("school_lms.db")
+        c = conn.cursor()
+        c.execute("SELECT grade FROM assignments WHERE student=? AND grade IS NOT NULL", (self.username,))
+        grades = c.fetchall()
+        conn.close()
+        if not grades:
+            QMessageBox.information(self, "Grade Statistics", "No grades available yet.")
+            return
+        grades = [g[0] for g in grades if g[0].isdigit()]  # Only numeric grades for average
+        if grades:
+            avg_grade = sum(int(g) for g in grades) / len(grades)
+            stats = f"Total Graded: {len(grades)}\nAverage Grade: {avg_grade:.1f}"
+        else:
+            stats = "Total Graded: 0\nAverage Grade: N/A (No numeric grades)"
+        QMessageBox.information(self, "Grade Statistics", stats)
 
     def enroll_in_course(self):
         conn = sqlite3.connect("school_lms.db")
@@ -275,6 +333,28 @@ class DashboardWindow(QMainWindow):
                 self.refresh_notif_list()
                 QMessageBox.information(self, "Success", "Assignment submitted!")
 
+    def send_message(self):
+        selected = self.course_list.currentItem()
+        if not selected:
+            QMessageBox.warning(self, "Error", "Select a course first!")
+            return
+        course_id = int(selected.text().split("ID: ")[1].split(")")[0])
+        conn = sqlite3.connect("school_lms.db")
+        c = conn.cursor()
+        c.execute("SELECT teacher FROM courses WHERE course_id=?", (course_id,))
+        teacher = c.fetchone()[0]
+        message, ok = QInputDialog.getText(self, "Send Message", f"Message to {teacher}:")
+        if ok and message:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            c.execute("INSERT INTO messages (sender, receiver, course_id, message, timestamp) VALUES (?, ?, ?, ?, ?)",
+                     (self.username, teacher, course_id, message, timestamp))
+            c.execute("INSERT INTO notifications (username, message) VALUES (?, ?)",
+                     (teacher, f"New message from {self.username} in course ID {course_id}"))
+            conn.commit()
+            conn.close()
+            self.refresh_message_list()
+            QMessageBox.information(self, "Success", "Message sent!")
+
     # Teacher Dashboard
     def teacher_dashboard(self):
         courses_tab = QWidget()
@@ -311,13 +391,25 @@ class DashboardWindow(QMainWindow):
         view_button.clicked.connect(self.refresh_assignment_list)
         grade_button = QPushButton("Grade Selected Assignment", self)
         grade_button.clicked.connect(self.grade_assignment)
+        preview_button = QPushButton("Preview Selected Assignment", self)
+        preview_button.clicked.connect(self.preview_assignment)
         download_button = QPushButton("Download Selected Assignment", self)
         download_button.clicked.connect(self.download_assignment)
         assignments_layout.addWidget(view_button)
         assignments_layout.addWidget(grade_button)
+        assignments_layout.addWidget(preview_button)
         assignments_layout.addWidget(download_button)
         assignments_tab.setLayout(assignments_layout)
         self.tabs.addTab(assignments_tab, "Assignments")
+
+        messages_tab = QWidget()
+        messages_layout = QVBoxLayout()
+        messages_layout.addWidget(QLabel("Messages:"))
+        self.message_list = QListWidget()
+        self.refresh_message_list()
+        messages_layout.addWidget(self.message_list)
+        messages_tab.setLayout(messages_layout)
+        self.tabs.addTab(messages_tab, "Messages")
 
     def refresh_course_list_teacher(self):
         self.course_list.clear()
@@ -378,161 +470,3 @@ class DashboardWindow(QMainWindow):
         title, ok1 = QInputDialog.getText(self, "Create Assignment", "Enter assignment title:")
         due_date, ok2 = QInputDialog.getText(self, "Create Assignment", "Enter due date (YYYY-MM-DD):")
         description, ok3 = QInputDialog.getText(self, "Create Assignment", "Enter description:")
-        if ok1 and ok2 and ok3 and title and due_date and description:
-            if not self.validate_due_date(due_date):
-                QMessageBox.warning(self, "Error", "Due date must be in YYYY-MM-DD format!")
-                return
-            conn = sqlite3.connect("school_lms.db")
-            c = conn.cursor()
-            c.execute("SELECT COUNT(*) FROM assignment_definitions WHERE course_id=? AND title=?", 
-                     (course_id, title))
-            if c.fetchone()[0] > 0:
-                QMessageBox.warning(self, "Error", "Assignment title already exists in this course!")
-                conn.close()
-                return
-            c.execute("INSERT INTO assignment_definitions (course_id, title, due_date, description) VALUES (?, ?, ?, ?)",
-                     (course_id, title, due_date, description))
-            c.execute("SELECT student FROM enrollments WHERE course_id=?", (course_id,))
-            students = c.fetchall()
-            for student_tuple in students:
-                student = student_tuple[0]
-                c.execute("INSERT INTO notifications (username, message) VALUES (?, ?)",
-                         (student, f"New assignment '{title}' due {due_date} in course ID {course_id}"))
-            conn.commit()
-            conn.close()
-            QMessageBox.information(self, "Success", "Assignment created and students notified!")
-
-    def edit_assignment(self):
-        selected = self.course_list.currentItem()
-        if not selected:
-            QMessageBox.warning(self, "Error", "Select a course first!")
-            return
-        course_id = int(selected.text().split("ID: ")[1].split(")")[0])
-        conn = sqlite3.connect("school_lms.db")
-        c = conn.cursor()
-        c.execute("SELECT def_id, title, due_date, description FROM assignment_definitions WHERE course_id=?", 
-                 (course_id,))
-        assignments = c.fetchall()
-        if not assignments:
-            QMessageBox.information(self, "Info", "No assignments to edit in this course.")
-            conn.close()
-            return
-        assignment_titles = [f"{a[1]} (Due: {a[2]})" for a in assignments]
-        assignment_title, ok = QInputDialog.getItem(self, "Edit Assignment", "Select an assignment:", assignment_titles, 0, False)
-        if ok and assignment_title:
-            def_id = next(a[0] for a in assignments if f"{a[1]} (Due: {a[2]})" == assignment_title)
-            new_title, ok1 = QInputDialog.getText(self, "Edit Assignment", "Enter new title:", text=assignments[assignment_titles.index(assignment_title)][1])
-            new_due_date, ok2 = QInputDialog.getText(self, "Edit Assignment", "Enter new due date (YYYY-MM-DD):", text=assignments[assignment_titles.index(assignment_title)][2])
-            new_description, ok3 = QInputDialog.getText(self, "Edit Assignment", "Enter new description:", text=assignments[assignment_titles.index(assignment_title)][3])
-            if ok1 and ok2 and ok3:
-                if not self.validate_due_date(new_due_date):
-                    QMessageBox.warning(self, "Error", "Due date must be in YYYY-MM-DD format!")
-                    conn.close()
-                    return
-                c.execute("UPDATE assignment_definitions SET title=?, due_date=?, description=? WHERE def_id=?", 
-                         (new_title, new_due_date, new_description, def_id))
-                c.execute("SELECT student FROM enrollments WHERE course_id=?", (course_id,))
-                students = c.fetchall()
-                for student_tuple in students:
-                    student = student_tuple[0]
-                    c.execute("INSERT INTO notifications (username, message) VALUES (?, ?)",
-                             (student, f"Assignment '{new_title}' updated: due {new_due_date} in course ID {course_id}"))
-                conn.commit()
-                conn.close()
-                QMessageBox.information(self, "Success", "Assignment updated and students notified!")
-
-    def grade_assignment(self):
-        selected = self.assignment_list.currentItem()
-        if not selected or not hasattr(self, 'assignments'):
-            QMessageBox.warning(self, "Error", "Refresh assignments and select one first!")
-            return
-        index = self.assignment_list.row(selected)
-        assignment_id = self.assignments[index][0]
-        grade, ok = QInputDialog.getText(self, "Grade Assignment", "Enter grade (e.g., A, B, 100):")
-        if ok and grade:
-            conn = sqlite3.connect("school_lms.db")
-            c = conn.cursor()
-            c.execute("UPDATE assignments SET grade=? WHERE assignment_id=?", (grade, assignment_id))
-            c.execute("SELECT student, description FROM assignments WHERE assignment_id=?", (assignment_id,))
-            student, desc = c.fetchone()
-            c.execute("INSERT INTO notifications (username, message) VALUES (?, ?)",
-                     (student, f"Your assignment '{desc}' has been graded: {grade}"))
-            conn.commit()
-            conn.close()
-            self.refresh_assignment_list()
-            QMessageBox.information(self, "Success", "Grade assigned!")
-
-    def download_assignment(self):
-        selected = self.assignment_list.currentItem()
-        if not selected or not hasattr(self, 'assignments'):
-            QMessageBox.warning(self, "Error", "Refresh assignments and select one first!")
-            return
-        index = self.assignment_list.row(selected)
-        file_path = self.assignments[index][2]
-        dest_path, _ = QFileDialog.getSaveFileName(self, "Save Assignment File", os.path.basename(file_path))
-        if dest_path:
-            shutil.copy(file_path, dest_path)
-            QMessageBox.information(self, "Success", "File downloaded!")
-
-    # Admin Dashboard
-    def admin_dashboard(self):
-        users_tab = QWidget()
-        users_layout = QVBoxLayout()
-        users_layout.addWidget(QLabel("Manage Users:"))
-        self.user_list = QListWidget()
-        self.refresh_user_list()
-        users_layout.addWidget(self.user_list)
-
-        add_user_button = QPushButton("Add User", self)
-        add_user_button.clicked.connect(self.add_user)
-        remove_user_button = QPushButton("Remove User", self)
-        remove_user_button.clicked.connect(self.remove_user)
-        users_layout.addWidget(add_user_button)
-        users_layout.addWidget(remove_user_button)
-        users_tab.setLayout(users_layout)
-        self.tabs.addTab(users_tab, "Users")
-
-    def refresh_user_list(self):
-        self.user_list.clear()
-        conn = sqlite3.connect("school_lms.db")
-        c = conn.cursor()
-        c.execute("SELECT username, role FROM users")
-        users = c.fetchall()
-        for user in users:
-            self.user_list.addItem(f"{user[0]} ({user[1]})")
-        conn.close()
-
-    def add_user(self):
-        from database import hash_password
-        username, ok1 = QInputDialog.getText(self, "Add User", "Enter username:")
-        password, ok2 = QInputDialog.getText(self, "Add User", "Enter password:", QLineEdit.Password)
-        role, ok3 = QInputDialog.getText(self, "Add User", "Enter role (student/teacher/admin):")
-        if ok1 and ok2 and ok3 and username and password and role:
-            conn = sqlite3.connect("school_lms.db")
-            c = conn.cursor()
-            c.execute("INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, ?)",
-                     (username, hash_password(password), role))
-            conn.commit()
-            conn.close()
-            self.refresh_user_list()
-            QMessageBox.information(self, "Success", "User added!")
-
-    def remove_user(self):
-        selected = self.user_list.currentItem()
-        if not selected:
-            QMessageBox.warning(self, "Error", "Select a user first!")
-            return
-        username = selected.text().split(" (")[0]
-        conn = sqlite3.connect("school_lms.db")
-        c = conn.cursor()
-        c.execute("DELETE FROM users WHERE username=?", (username,))
-        conn.commit()
-        conn.close()
-        self.refresh_user_list()
-        QMessageBox.information(self, "Success", "User removed!")
-
-    def logout(self):
-        from login import LoginWindow
-        self.login_window = LoginWindow()
-        self.login_window.show()
-        self.close()
