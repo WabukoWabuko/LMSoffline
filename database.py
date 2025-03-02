@@ -21,7 +21,7 @@ def init_db(force_reset=False):
                  (enrollment_id INTEGER PRIMARY KEY AUTOINCREMENT, course_id INTEGER, student TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS assignments 
                  (assignment_id INTEGER PRIMARY KEY AUTOINCREMENT, course_id INTEGER, 
-                  student TEXT, file_path TEXT, grade TEXT, due_date TEXT, description TEXT)''')
+                  student TEXT, file_path TEXT, grade TEXT, due_date TEXT, description TEXT, comment TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS assignment_definitions 
                  (def_id INTEGER PRIMARY KEY AUTOINCREMENT, course_id INTEGER, 
                   title TEXT, due_date TEXT, description TEXT)''')
@@ -30,6 +30,12 @@ def init_db(force_reset=False):
     c.execute('''CREATE TABLE IF NOT EXISTS messages 
                  (msg_id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT, receiver TEXT, 
                   course_id INTEGER, message TEXT, timestamp TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS quizzes 
+                 (quiz_id INTEGER PRIMARY KEY AUTOINCREMENT, course_id INTEGER, 
+                  title TEXT, due_date TEXT, question TEXT, options TEXT, correct_answer INTEGER)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS quiz_submissions 
+                 (submission_id INTEGER PRIMARY KEY AUTOINCREMENT, quiz_id INTEGER, 
+                  student TEXT, answer INTEGER, score INTEGER)''')
     
     # Add missing columns
     c.execute("PRAGMA table_info(assignments)")
@@ -40,6 +46,8 @@ def init_db(force_reset=False):
         c.execute("ALTER TABLE assignments ADD COLUMN due_date TEXT")
     if 'description' not in columns:
         c.execute("ALTER TABLE assignments ADD COLUMN description TEXT")
+    if 'comment' not in columns:
+        c.execute("ALTER TABLE assignments ADD COLUMN comment TEXT")
     
     c.execute("PRAGMA table_info(courses)")
     columns = [col[1] for col in c.fetchall()]
@@ -51,6 +59,7 @@ def init_db(force_reset=False):
     c.execute("CREATE INDEX IF NOT EXISTS idx_assignments_student ON assignments(student)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_notifications_username ON notifications(username)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_quiz_submissions_student ON quiz_submissions(student)")
 
     default_users = [
         ("student1", hash_password("pass123"), "student"),
